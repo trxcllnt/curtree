@@ -33,7 +33,7 @@ struct invalid_result
     __host__ __device__
     bool operator()(thrust::tuple<int, int> t)
     {
-        return thrust::get<0>(t) ==(int)-1;
+        return thrust::get<0>(t) ==-1;
     }
 };
 
@@ -191,14 +191,11 @@ __global__ void query_tree_bfs_frontier(
         }
         __syncthreads();
         //write out results
-        //if (threadIdx.x == 0)
-        //    overflow = true;
-        //__syncthreads();
         for (int i = 0; i < QUEUE/blockDim.x; i++)
             if (threadIdx.x+i*blockDim.x < QUEUE)
             {
-                q_out_nodes[idx_block*QUEUE+threadIdx.x+i*blockDim.x] = /*overflow ? -1 :*/ nodes[threadIdx.x+i*blockDim.x];
-                q_out_ids[idx_block*QUEUE+threadIdx.x+i*blockDim.x]   = /*overflow ? -1 :*/ q_ids[threadIdx.x+i*blockDim.x];
+                q_out_nodes[idx_block*QUEUE+threadIdx.x+i*blockDim.x] =  nodes[threadIdx.x+i*blockDim.x];
+                q_out_ids[idx_block*QUEUE+threadIdx.x+i*blockDim.x]   =  q_ids[threadIdx.x+i*blockDim.x];
             }
 
         if (threadIdx.x == 0)
@@ -277,9 +274,11 @@ struct write_hit
         {
             if (i >= size)
                 break;
+                
             if (intersect(qxmin[qid], qymin[qid], qxmax[qid], qymax[qid],
                     rxmin[i], rymin[i], rxmax[i], rymax[i]))
             {
+                //printf("i=%d p=%d eid=%d qid=%d\n",i,pos+hit,eid[i],qid);
                 out_eid[pos+hit] = eid[i];
                 out_qid[pos+hit] = qid;
                 hit++;           
@@ -377,10 +376,14 @@ if(0)
 
     invalid_blocks.resize(invalid_blocks_sz);
     cout<<"invalid block size: "<<invalid_blocks_sz<<endl;
-    for (int i = 0; i < (invalid_blocks_sz<20)?invalid_blocks_sz:20; i++)
-        cout<<invalid_blocks[i]<<endl;
+    if(invalid_blocks_sz>0)
+    {
+        std::cout<<"shared memory overflew; dfs is needed.............."<<std::endl;
+        exit(-1);
+    }
 
-    //remove invalid results from BFS results
+    //remove invalid results from BFS results; 
+    //this could be faster than the 2-phase counting/writting (node,query) pairs
     gettimeofday(&t0, NULL);
     int result_sz = num_blocks*QUEUE;
     thrust::device_ptr<int> d_q_nodes_ptr(d_q_nodes);
@@ -427,6 +430,7 @@ if(0)
     thrust::copy(rid_ptr,rid_ptr+result_sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;    
     std::cout<<"qid_ptr:"<<std::endl;
     thrust::copy(qid_ptr,qid_ptr+result_sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;    
+    
 }
     gettimeofday(&t0, NULL);
     //std::cout<<"d_rt.sz="<<d_rt.sz<<"d_rbox.sz="<<d_rbox.sz<<"  result_sz="<<result_sz<<std::endl;
@@ -437,15 +441,25 @@ if(0)
                                 d_rbox.xmin, d_rbox.ymin, d_rbox.xmax, d_rbox.ymax, 
                                 d_rbox.sz,d_rt.fanout));
 
-    cout<<"prefix scan..."<<endl;
+if(0)
+{
     std::cout<<"counts:"<<std::endl;
-    //thrust::copy(d_count.begin(),d_count.end(),std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;    
-    
+    thrust::copy(d_count.begin(),d_count.end(),std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;    
+}
+
+    cout<<"prefix scan..."<<endl;
     int total_hit = d_count.back();
     thrust::exclusive_scan(d_count.begin(), d_count.end(), d_count.begin());
     total_hit += d_count.back();
     cout<<"total hit: "<<total_hit<<endl;
-    
+
+if(0)
+{
+    std::cout<<"rbox.id"<<std::endl;
+    thrust::device_ptr<int> rid_ptr=thrust::device_pointer_cast(d_rbox.id);
+    thrust::copy(rid_ptr,rid_ptr+d_rbox.sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;    
+}
+
     //(data, query window) pair: (d,q)<==>(f,t)
     idpair_d_alloc(total_hit,d_dq);    
     thrust::transform(thrust::make_zip_iterator(thrust::make_tuple(qid_ptr,  rid_ptr, d_count.begin())),
@@ -458,11 +472,11 @@ if(0)
     long write_time = t1.tv_sec*1000000+t1.tv_usec - t0.tv_sec * 1000000-t0.tv_usec;
     printf("write results time.......%10.2f\n",(float)write_time/1000);
 
-    thrust::device_ptr<int> fid_ptr=thrust::device_pointer_cast(d_dq.fid);
-    thrust::device_ptr<int> tid_ptr=thrust::device_pointer_cast(d_dq.tid);
-
 if(0)
 {
+     thrust::device_ptr<int> fid_ptr=thrust::device_pointer_cast(d_dq.fid);
+     thrust::device_ptr<int> tid_ptr=thrust::device_pointer_cast(d_dq.tid);
+     
      std::cout<<"fid_ptr:"<<std::endl;
      thrust::copy(fid_ptr,fid_ptr+total_hit,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;    
      std::cout<<"tid_ptr:"<<std::endl;

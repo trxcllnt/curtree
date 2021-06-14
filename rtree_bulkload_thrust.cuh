@@ -71,7 +71,7 @@ struct mbr2key : public thrust::unary_function<thrust::tuple<T, T, T, T>, uint>
 };
  
 template<class T>
-int build_rtree(const BBOX<T>& d_box,RTREE<T>& d_rt) 
+int build_rtree(BBOX<T>& d_box,RTREE<T>& d_rt) 
 {
     
     timeval t0, t1;
@@ -101,12 +101,19 @@ int build_rtree(const BBOX<T>& d_box,RTREE<T>& d_rt)
     gettimeofday(&t1, NULL);
     long sort_time = t1.tv_sec*1000000+t1.tv_usec - t0.tv_sec * 1000000-t0.tv_usec;
     printf("sort time.......%10.2f\n",(float)sort_time/1000);
+
+  if(0)
+  {
+      std::cout<<"in bulkload d_box.id"<<std::endl;
+      thrust::copy(d_id,d_id+size,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
+  }
+
     
     //release sort key
     d_sort_key.resize(0);
     d_sort_key.shrink_to_fit();
 
-    //pack R-tree
+    //pack R-tree_
     //first calculate levels
     vector<int> levels;
     int lev = 0;
@@ -122,6 +129,8 @@ int build_rtree(const BBOX<T>& d_box,RTREE<T>& d_rt)
         lev++;
         cout<<"level: "<<lev<<" len: "<<length<<endl;
     }
+ 
+ 
     rt_d_alloc(R_sz,d_rt); 
 
     thrust::device_ptr<T> d_R_xmin=thrust::device_pointer_cast(d_rt.xmin);
@@ -130,12 +139,7 @@ int build_rtree(const BBOX<T>& d_box,RTREE<T>& d_rt)
     thrust::device_ptr<T> d_R_ymax=thrust::device_pointer_cast(d_rt.ymax);
     thrust::device_ptr<int> d_R_pos=thrust::device_pointer_cast(d_rt.pos);
     thrust::device_ptr<int> d_R_len=thrust::device_pointer_cast(d_rt.len);
-     
-    thrust::copy(d_xmin, d_xmin+size, d_R_xmin+R_sz-size);
-    thrust::copy(d_ymin, d_ymin+size, d_R_ymin+R_sz-size);
-    thrust::copy(d_xmax, d_xmax+size, d_R_xmax+R_sz-size);
-    thrust::copy(d_ymax, d_ymax+size, d_R_ymax+R_sz-size);
-    
+             
     gettimeofday(&t0, NULL);
     int start_pos = R_sz;
     int next_sz = size;
@@ -145,6 +149,7 @@ int build_rtree(const BBOX<T>& d_box,RTREE<T>& d_rt)
         start_pos -= levels[i];
         thrust::counting_iterator<int> first(0);
         thrust::counting_iterator<int> last = first + next_sz;
+        printf("lev=%d start_pos=%d\n",i,start_pos);
         if (i == 0)
             thrust::reduce_by_key(
                    thrust::make_transform_iterator(first, reduce_trans(d)),
@@ -177,7 +182,7 @@ int build_rtree(const BBOX<T>& d_box,RTREE<T>& d_rt)
     printf("build R tree time.......%10.2f\n",(float)build_time/1000);    
     cout<<"total size: "<<R_sz<<" total level: "<<lev<<endl;
 
-if(1)
+if(0)
 {
     std::cout<<"build: d_rt.pos="<<d_rt.pos<<" d_rt.len="<<d_rt.len<<std::endl;
     
@@ -199,6 +204,13 @@ if(1)
     thrust::copy(d_R_len,d_R_len+R_sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
     
 }
+  if(0)
+  {
+      std::cout<<"end bulkload d_box.id"<<std::endl;
+      thrust::device_ptr<int> t_id=thrust::device_pointer_cast(d_box.id);
+      thrust::copy(t_id,t_id+size,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
+  }
+
     return R_sz;
 
 }

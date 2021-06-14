@@ -51,24 +51,24 @@ void box_d2h(BBOX<T>& h_box,const BBOX<T>& d_box)
      d_box.sz=sz;
   
      HANDLE_ERROR( cudaMalloc( (void**)&d_box.xmin,sz* sizeof(T))); 
-     HANDLE_ERROR( cudaMemcpy( d_box.xmin,h_box.xmin, sz* sizeof(T), cudaMemcpyHostToDevice ) );
      assert(d_box.xmin!=NULL);
+     HANDLE_ERROR( cudaMemcpy( d_box.xmin,h_box.xmin, sz* sizeof(T), cudaMemcpyHostToDevice ) );
   
      HANDLE_ERROR( cudaMalloc( (void**)&d_box.ymin,sz* sizeof(T))); 
-     HANDLE_ERROR( cudaMemcpy( d_box.ymin,h_box.ymin, sz* sizeof(T), cudaMemcpyHostToDevice ) );
       assert(d_box.ymin!=NULL);
+     HANDLE_ERROR( cudaMemcpy( d_box.ymin,h_box.ymin, sz* sizeof(T), cudaMemcpyHostToDevice ) );
      
      HANDLE_ERROR( cudaMalloc( (void**)&d_box.xmax,sz* sizeof(T))); 
-     HANDLE_ERROR( cudaMemcpy( d_box.xmax,h_box.xmax, sz* sizeof(T), cudaMemcpyHostToDevice ) );
      assert(d_box.xmax!=NULL);
+     HANDLE_ERROR( cudaMemcpy( d_box.xmax,h_box.xmax, sz* sizeof(T), cudaMemcpyHostToDevice ) );
   
      HANDLE_ERROR( cudaMalloc( (void**)&d_box.ymax,sz* sizeof(T))); 
+     assert(d_box.ymax!=NULL);     
      HANDLE_ERROR( cudaMemcpy( d_box.ymax,h_box.ymax, sz* sizeof(T), cudaMemcpyHostToDevice ) );
-     assert(d_box.ymax!=NULL);
   
      HANDLE_ERROR( cudaMalloc( (void**)&d_box.id,sz* sizeof(int))); 
+     assert(d_box.id!=NULL);     
      HANDLE_ERROR( cudaMemcpy( d_box.id,h_box.id, sz* sizeof(int), cudaMemcpyHostToDevice ) );
-     assert(d_box.id!=NULL);
  }
 
 template<typename  T>
