@@ -91,15 +91,11 @@ struct lookup_box_id
    
    __host__ __device__
     int operator()(int idx) {
-     //auto tid = blockIdx.x * blockDim.x + threadIdx.x;
-     //printf("tid=%d idx=%d offset=%d  idx-offset=%d ret=%d\n",tid,idx,offset, idx-offset,ids[idx-offset]);
          return ids[idx-offset];
     }
 };
 
 
-
-#define QUEUE 12800
 
 //d_dq: (box,query)<==>(f,t)
 template <class T>
@@ -107,19 +103,14 @@ void bfs_thrust(const RTREE<T>& d_rt,const BBOX<T>& d_rbox,const BBOX<T>& d_qbox
 {
   int q_size=d_qbox.sz;
   int work_sz = q_size*1;
-  cout<<"query size: "<<q_size<<endl;
-  
 
   thrust::device_ptr<int> d_rt_pos=thrust::device_pointer_cast(d_rt.pos);
   thrust::device_ptr<int> d_rt_len=thrust::device_pointer_cast(d_rt.len);
-  //thrust::device_ptr<int> d_q_id=thrust::device_pointer_cast(d_qbox.id);
   
-  thrust::device_vector<int> d_tmp_qid_vec(q_size*QUEUE, -1);
-  thrust::device_vector<int> d_tmp_nid_vec(q_size*QUEUE, -1);
+  thrust::device_vector<int> d_tmp_qid_vec(work_sz, -1);
+  thrust::device_vector<int> d_tmp_nid_vec(work_sz, -1);
   
-  //copy query ids; using sequence id instead
-  //thrust::copy(d_q_id,d_q_id+d_qbox.sz,d_tmp_qid_vec.begin());
-  thrust::sequence(d_tmp_qid_vec.begin(),d_tmp_qid_vec.begin()+d_qbox.sz);
+  thrust::sequence(d_tmp_qid_vec.begin(),d_tmp_qid_vec.begin()+work_sz);
 
   //root id is always 0
   thrust::fill_n(d_tmp_nid_vec.begin(),work_sz,0);
@@ -131,7 +122,6 @@ void bfs_thrust(const RTREE<T>& d_rt,const BBOX<T>& d_rbox,const BBOX<T>& d_qbox
   int lev=0;
 
   while(work_sz>0){
-    std::cout<<"lev="<<lev<<" work_sz="<<work_sz<<std::endl; 
     thrust::device_vector<bool> d_intersect_flag(work_sz);    
     
     auto d_tmp1_ptr=thrust::make_zip_iterator(thrust::make_tuple(d_tmp_qid_vec.begin(), d_tmp_nid_vec.begin()));           
@@ -144,7 +134,7 @@ void bfs_thrust(const RTREE<T>& d_rt,const BBOX<T>& d_rbox,const BBOX<T>& d_qbox
     int valid_sz =
       thrust::stable_partition(d_nqf_ptr, d_nqf_ptr+work_sz,is_non_leaf(d_rt.sz,d_rt.len))-d_nqf_ptr;
               
-    std::cout<<"lev="<<lev<<" valid_sz="<<valid_sz<<std::endl;
+    std::cout<<"lev="<<lev<<" work_sz="<<work_sz<<" valid_sz="<<valid_sz<<std::endl; 
     total_result_sz += valid_sz;
      
     if (valid_sz <= 0)
@@ -153,15 +143,9 @@ void bfs_thrust(const RTREE<T>& d_rt,const BBOX<T>& d_rbox,const BBOX<T>& d_qbox
     //expand for next loop; assume d_map[0] is initialized to 0
     thrust::device_vector<int> d_map(valid_sz+1);
 
-    gettimeofday(&t0, NULL);
     auto d_len_ptr=thrust::make_permutation_iterator(d_rt_len, d_tmp_nid_vec.begin());
     thrust::inclusive_scan(d_len_ptr,d_len_ptr+valid_sz,d_map.begin()+1);
 
- if(0)
- {
-    cout<<"d_map"<<std::endl;
-    thrust::copy(d_map.begin(),d_map.begin()+valid_sz+1,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;    
- }
     int next_size = d_map.back();
     std::cout<<"lev="<<lev<<" next_size="<<next_size<<std::endl; 
     if (next_size <= 0)
@@ -177,33 +161,12 @@ void bfs_thrust(const RTREE<T>& d_rt,const BBOX<T>& d_rbox,const BBOX<T>& d_qbox
  
   
    //handling nid   
-    auto  node_pos_ptr=thrust::make_permutation_iterator( d_rt_pos, d_tmp_nid_vec.begin());
-
-if(0)
-{
-    cout<<"node_pos_ptr"<<std::endl;
-    thrust::copy(node_pos_ptr,node_pos_ptr+valid_sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
-    cout<<"d_map"<<std::endl;
-    thrust::copy(d_map.begin(),d_map.begin()+valid_sz+1,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;    
-}
-   
+    auto  node_pos_ptr=thrust::make_permutation_iterator( d_rt_pos, d_tmp_nid_vec.begin());   
    thrust::scatter(node_pos_ptr,node_pos_ptr+valid_sz,d_map.begin(),d_next_nid_vec.begin());
-
-if(0)
-{
-    cout<<"brefore inclusive_scan_by_key offset"<<std::endl;
-    thrust::copy(d_next_nid_vec.begin(),d_next_nid_vec.begin()+next_size,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
-}    
-    thrust::inclusive_scan_by_key(d_next_qid_vec.begin(),d_next_qid_vec.begin()+next_size,d_next_nid_vec.begin(),
+   thrust::inclusive_scan_by_key(d_next_qid_vec.begin(),d_next_qid_vec.begin()+next_size,d_next_nid_vec.begin(),
         d_next_nid_vec.begin(),thrust::equal_to<int>(),thrust::maximum<int>());
-   
-if(0)
-{
-    cout<<"brefore adding offset"<<std::endl;
-    thrust::copy(d_next_nid_vec.begin(),d_next_nid_vec.begin()+next_size,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
-}
 
-  //generate offset array
+   //generate offset array
     thrust::device_vector<int> d_offset(next_size, -1);
 
     thrust::scatter(
@@ -214,24 +177,12 @@ if(0)
     thrust::inclusive_scan(d_offset.begin(), d_offset.end(),
         d_offset.begin(), thrust::maximum<int>());
 
-if(0)
-{
-    cout<<"brefore: d_offset"<<std::endl;
-    thrust::copy(d_offset.begin(),d_offset.begin()+next_size,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
-} 
-
     thrust::transform(
         d_offset.begin(),
         d_offset.end(),
         thrust::make_counting_iterator(0),
         d_offset.begin(),
         _2 - _1);
-
-if(0)
-{
-    cout<<"after: d_offset"<<std::endl;
-    thrust::copy(d_offset.begin(),d_offset.begin()+next_size,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
-}
 
     thrust::transform(
         d_next_nid_vec.begin(), 
@@ -240,60 +191,33 @@ if(0)
         d_next_nid_vec.begin(),
         _1 + _2);
 
-if(0)
- {
-    
-    cout<<"d_next_qid_vec"<<std::endl;
-    thrust::copy(d_next_qid_vec.begin(),d_next_qid_vec.begin()+next_size,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
-   
-    cout<<"d_next_nid_vec"<<std::endl;
-    thrust::copy(d_next_nid_vec.begin(),d_next_nid_vec.begin()+next_size,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
-   
- }
-    //d_tmp_qid_vec.resize(0);
-    //d_tmp_nid_vec.resize(0);
     d_tmp_qid_vec.swap(d_next_qid_vec);
     d_tmp_nid_vec.swap(d_next_nid_vec);
+    d_next_qid_vec.resize(0);
+    d_next_nid_vec.resize(0);
+    d_next_qid_vec.shrink_to_fit();
+    d_next_nid_vec.shrink_to_fit();
+    
     work_sz = next_size;
     lev++;   
   }
-
-//  std::cout<<"work_sz="<<work_sz<<std::endl;
-//  std::cout<<"vec size="<<d_tmp_qid_vec.size()<<std::endl;
-  
-  //remove (qid,eid) pairs that do not intersect  
+  std::cout<<"Final work_sz="<<work_sz<<std::endl;
+  //remove (qid,boxid) pairs that do not intersect  
   auto out_qb_ptr=thrust::make_zip_iterator(thrust::make_tuple(d_tmp_qid_vec.begin(), d_tmp_nid_vec.begin()));
   int result_sz = thrust::copy_if(out_qb_ptr,out_qb_ptr+work_sz,out_qb_ptr,
       d_box_intersect<T>(d_qbox,d_rbox,d_rt.sz))-out_qb_ptr;
   std::cout<<"result_sz="<<result_sz<<std::endl;
   
-  //
   idpair_d_alloc(result_sz,d_dq);
   thrust::device_ptr<int> d_nid_ptr=thrust::device_pointer_cast(d_dq.fid);
   thrust::device_ptr<int> d_qid_ptr=thrust::device_pointer_cast(d_dq.tid);
-
-if(0)
-{
-    std::cout<<"box ids after sorting.........."<<std::endl;
-    thrust::device_ptr<int> d_rbox_ptr=thrust::device_pointer_cast(d_rbox.id);
-    thrust::copy(d_rbox_ptr,d_rbox_ptr+d_rbox.sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;    
-    std::cout<<"computed box ids"<<std::endl;
-    thrust::copy(d_tmp_nid_vec.begin(),d_tmp_nid_vec.begin()+result_sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl; 
-}
 
   //substract offset so that box id begins with 0
   thrust::transform(d_tmp_nid_vec.begin(),d_tmp_nid_vec.begin()+result_sz,
   	d_nid_ptr,lookup_box_id<T>(d_rt.sz,d_rbox.id));     
   thrust::copy(d_tmp_qid_vec.begin(),d_tmp_qid_vec.begin()+result_sz,d_qid_ptr);
 
-if(0)
-{
-  std::cout<<"final resuts: box ids"<<std::endl;
-  thrust::copy(d_nid_ptr,d_nid_ptr+result_sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl; 
-  std::cout<<"final resuts: query ids"<<std::endl;
-  thrust::copy(d_qid_ptr,d_qid_ptr+result_sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
- }
-    gettimeofday(&t1, NULL);
-    float run_time = t1.tv_sec * 1000000 + t1.tv_usec - t0.tv_sec * 1000000 - t0.tv_usec;
-    std::cout<<"thrust bfs end-to-end time="<<run_time/1000 <<"ms"<<std::endl;         
+  gettimeofday(&t1, NULL);
+  float run_time = t1.tv_sec * 1000000 + t1.tv_usec - t0.tv_sec * 1000000 - t0.tv_usec;
+  std::cout<<"thrust bfs end-to-end time="<<run_time/1000 <<"ms"<<std::endl;         
 }

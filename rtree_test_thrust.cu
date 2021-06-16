@@ -1,6 +1,10 @@
-//nvcc rtree_test_thrust.cu utility.cpp
-//./a.out input_44edges.txt 44  input_44edges.txt  44 3
-//./a.out input_39096edges.txt 39096 input_39096edges.txt 39096 10
+/*
+    nvcc -O3 rtree_test_thrust.cu utility.cpp -o rtree_test_thrust
+
+   ./rtree_test_thrust.out input_44edges.txt 44  input_44edges.txt  44 3
+   ./rtree_test_thrust input_39096edges.txt 39096 input_39096edges.txt 39096 10
+   ./rtree_test_thrust edges.txt 1154548 edges.txt 1154548 10
+*/ 
 
 
 #include<stdio.h>
@@ -63,25 +67,8 @@ int main(int argc, char *argv[])
     //currently readMBR handles only float type
     readMBR(argv[1],h_d_box.sz,0,h_d_box.xmin, h_d_box.ymin, h_d_box.xmax, h_d_box.ymax, h_d_box.id); 
     box_h2d(d_r_box,h_d_box);
- 
-  if(0)
-  {
-      std::cout<<"main h_d_box.id"<<std::endl;
-      thrust::copy(h_d_box.id,h_d_box.id+h_d_box.sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
- 
-      std::cout<<"main: d_r_box.id"<<std::endl;
-      thrust::device_ptr<int> rid_ptr=thrust::device_pointer_cast(d_r_box.id);
-      thrust::copy(rid_ptr,rid_ptr+d_r_box.sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
-  }
 
     build_rtree(d_r_box,d_rt);
-
- if(0)
- {
-     std::cout<<"main: d_r_box.id"<<std::endl;
-     thrust::device_ptr<int> rid_ptr=thrust::device_pointer_cast(d_r_box.id);
-      thrust::copy(rid_ptr,rid_ptr+d_r_box.sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
- }
 
     readMBR(argv[3],h_q_box.sz,10,h_q_box.xmin, h_q_box.ymin, h_q_box.xmax, h_q_box.ymax, h_q_box.id);   
 
