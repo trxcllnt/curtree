@@ -75,12 +75,11 @@ int main(int argc, char *argv[])
   }
 
     build_rtree(d_r_box,d_rt);
-    std::cout<<"main: d_rt.pos="<<d_rt.pos<<" d_rt.len="<<d_rt.len<<std::endl;
 
  if(0)
  {
      std::cout<<"main: d_r_box.id"<<std::endl;
-       thrust::device_ptr<int> rid_ptr=thrust::device_pointer_cast(d_r_box.id);
+     thrust::device_ptr<int> rid_ptr=thrust::device_pointer_cast(d_r_box.id);
       thrust::copy(rid_ptr,rid_ptr+d_r_box.sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
  }
 
@@ -97,9 +96,7 @@ int main(int argc, char *argv[])
     
     //only generating (node, query) pairs for now
     bfs_thrust(d_rt,d_r_box,d_q_box,d_dq);
-      
-    exit(-1);
-    
+          
     idpair_d2h(h_dq,d_dq);
     
     //first sort by data box id
@@ -110,7 +107,7 @@ int main(int argc, char *argv[])
     thrust::host_vector<int> h_g_did(h_dq.fid,h_dq.fid+h_dq.sz);
     thrust::host_vector<int> h_g_qid(h_dq.tid,h_dq.tid+h_dq.sz);
         
-    print_result_list(h_g_did,h_g_qid);
+    //print_result_list(h_g_did,h_g_qid);
     
     //verification
     thrust::host_vector<int> h_c_did,h_c_qid;
@@ -121,10 +118,14 @@ int main(int argc, char *argv[])
     bool same_q=same_vector(-1,h_g_qid,h_c_qid);
     
     if(same_d && same_q)
+    {
         printf("verified successfully\n");
+    }
     else
+    {
+        printf("same box ids=%d same query ids=%d\n",same_d,same_q);
         printf("verification failed\n");
-
+     }
     box_d_free(d_r_box);
     box_h_free(h_d_box);
     

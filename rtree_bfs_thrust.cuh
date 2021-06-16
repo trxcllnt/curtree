@@ -83,10 +83,25 @@ struct d_box_intersect
     }
 };
 
+template <class T>
+struct lookup_box_id
+{
+   int offset,*ids;
+   lookup_box_id(int _offset,int *_ids):offset(_offset),ids(_ids){}
+   
+   __host__ __device__
+    int operator()(int idx) {
+     //auto tid = blockIdx.x * blockDim.x + threadIdx.x;
+     //printf("tid=%d idx=%d offset=%d  idx-offset=%d ret=%d\n",tid,idx,offset, idx-offset,ids[idx-offset]);
+         return ids[idx-offset];
+    }
+};
+
+
 
 #define QUEUE 12800
 
-//d_dq: (d,q)<==>(f,t)
+//d_dq: (box,query)<==>(f,t)
 template <class T>
 void bfs_thrust(const RTREE<T>& d_rt,const BBOX<T>& d_rbox,const BBOX<T>& d_qbox,IDPAIR& d_dq)
 {
@@ -97,25 +112,28 @@ void bfs_thrust(const RTREE<T>& d_rt,const BBOX<T>& d_rbox,const BBOX<T>& d_qbox
 
   thrust::device_ptr<int> d_rt_pos=thrust::device_pointer_cast(d_rt.pos);
   thrust::device_ptr<int> d_rt_len=thrust::device_pointer_cast(d_rt.len);
-  thrust::device_ptr<int> d_q_id=thrust::device_pointer_cast(d_qbox.id);
+  //thrust::device_ptr<int> d_q_id=thrust::device_pointer_cast(d_qbox.id);
   
   thrust::device_vector<int> d_tmp_qid_vec(q_size*QUEUE, -1);
   thrust::device_vector<int> d_tmp_nid_vec(q_size*QUEUE, -1);
   
-  //copy query ids
-  thrust::copy(d_q_id,d_q_id+d_qbox.sz,d_tmp_qid_vec.begin());
+  //copy query ids; using sequence id instead
+  //thrust::copy(d_q_id,d_q_id+d_qbox.sz,d_tmp_qid_vec.begin());
+  thrust::sequence(d_tmp_qid_vec.begin(),d_tmp_qid_vec.begin()+d_qbox.sz);
+
   //root id is always 0
   thrust::fill_n(d_tmp_nid_vec.begin(),work_sz,0);
       
   timeval t0, t1;
+  gettimeofday(&t0, NULL);
+  
   int total_result_sz = 0;
-  long total_time = 0;
   int lev=0;
-  while(lev<4){
+
+  while(work_sz>0){
     std::cout<<"lev="<<lev<<" work_sz="<<work_sz<<std::endl; 
     thrust::device_vector<bool> d_intersect_flag(work_sz);    
     
-    gettimeofday(&t0, NULL);
     auto d_tmp1_ptr=thrust::make_zip_iterator(thrust::make_tuple(d_tmp_qid_vec.begin(), d_tmp_nid_vec.begin()));           
     thrust::transform(d_tmp1_ptr,d_tmp1_ptr+work_sz,d_intersect_flag.begin(),d_node_intersect<T>(d_rt,d_qbox));
     
@@ -126,9 +144,6 @@ void bfs_thrust(const RTREE<T>& d_rt,const BBOX<T>& d_rbox,const BBOX<T>& d_qbox
     int valid_sz =
       thrust::stable_partition(d_nqf_ptr, d_nqf_ptr+work_sz,is_non_leaf(d_rt.sz,d_rt.len))-d_nqf_ptr;
               
-    gettimeofday(&t1, NULL);
-    total_time += t1.tv_sec * 1000000 + t1.tv_usec 
-                - t0.tv_sec * 1000000 - t0.tv_usec;
     std::cout<<"lev="<<lev<<" valid_sz="<<valid_sz<<std::endl;
     total_result_sz += valid_sz;
      
@@ -147,10 +162,6 @@ void bfs_thrust(const RTREE<T>& d_rt,const BBOX<T>& d_rbox,const BBOX<T>& d_qbox
     cout<<"d_map"<<std::endl;
     thrust::copy(d_map.begin(),d_map.begin()+valid_sz+1,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;    
  }
-    gettimeofday(&t1, NULL);
-    total_time += t1.tv_sec * 1000000 + t1.tv_usec 
-                - t0.tv_sec * 1000000 - t0.tv_usec;
-    
     int next_size = d_map.back();
     std::cout<<"lev="<<lev<<" next_size="<<next_size<<std::endl; 
     if (next_size <= 0)
@@ -195,8 +206,6 @@ if(0)
   //generate offset array
     thrust::device_vector<int> d_offset(next_size, -1);
 
-    gettimeofday(&t0, NULL);
-    //warning: 
     thrust::scatter(
         d_map.begin(),
         d_map.begin()+valid_sz,
@@ -230,10 +239,6 @@ if(0)
         d_offset.begin(),
         d_next_nid_vec.begin(),
         _1 + _2);
-    cudaDeviceSynchronize();
-    gettimeofday(&t1, NULL);
-    total_time += t1.tv_sec * 1000000 + t1.tv_usec 
-                - t0.tv_sec * 1000000 - t0.tv_usec;
 
 if(0)
  {
@@ -262,11 +267,33 @@ if(0)
       d_box_intersect<T>(d_qbox,d_rbox,d_rt.sz))-out_qb_ptr;
   std::cout<<"result_sz="<<result_sz<<std::endl;
   
+  //
   idpair_d_alloc(result_sz,d_dq);
   thrust::device_ptr<int> d_nid_ptr=thrust::device_pointer_cast(d_dq.fid);
   thrust::device_ptr<int> d_qid_ptr=thrust::device_pointer_cast(d_dq.tid);
 
+if(0)
+{
+    std::cout<<"box ids after sorting.........."<<std::endl;
+    thrust::device_ptr<int> d_rbox_ptr=thrust::device_pointer_cast(d_rbox.id);
+    thrust::copy(d_rbox_ptr,d_rbox_ptr+d_rbox.sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;    
+    std::cout<<"computed box ids"<<std::endl;
+    thrust::copy(d_tmp_nid_vec.begin(),d_tmp_nid_vec.begin()+result_sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl; 
+}
+
   //substract offset so that box id begins with 0
-  thrust::transform(d_tmp_nid_vec.begin(),d_tmp_nid_vec.begin()+result_sz,d_nid_ptr,_1-d_rt.sz);  
+  thrust::transform(d_tmp_nid_vec.begin(),d_tmp_nid_vec.begin()+result_sz,
+  	d_nid_ptr,lookup_box_id<T>(d_rt.sz,d_rbox.id));     
   thrust::copy(d_tmp_qid_vec.begin(),d_tmp_qid_vec.begin()+result_sz,d_qid_ptr);
+
+if(0)
+{
+  std::cout<<"final resuts: box ids"<<std::endl;
+  thrust::copy(d_nid_ptr,d_nid_ptr+result_sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl; 
+  std::cout<<"final resuts: query ids"<<std::endl;
+  thrust::copy(d_qid_ptr,d_qid_ptr+result_sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
+ }
+    gettimeofday(&t1, NULL);
+    float run_time = t1.tv_sec * 1000000 + t1.tv_usec - t0.tv_sec * 1000000 - t0.tv_usec;
+    std::cout<<"thrust bfs end-to-end time="<<run_time/1000 <<"ms"<<std::endl;         
 }
