@@ -82,14 +82,14 @@ int main(int argc, char *argv[])
        thrust::device_ptr<int> rid_ptr=thrust::device_pointer_cast(d_r_box.id);
       thrust::copy(rid_ptr,rid_ptr+d_r_box.sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
  }
-
-
     readMBR(argv[3],h_q_box.sz,10,h_q_box.xmin, h_q_box.ymin, h_q_box.xmax, h_q_box.ymax, h_q_box.id);   
+ 
  if(0)
  {
      std::cout<<"h_q_box.id"<<std::endl;
       thrust::copy(h_q_box.id,h_q_box.id+h_q_box.sz,std::ostream_iterator<int>(std::cout, " "));std::cout<<std::endl;
  }
+    
     box_h2d(d_q_box,h_q_box);
 
     IDPAIR d_dq,h_dq;
@@ -108,7 +108,7 @@ int main(int argc, char *argv[])
     thrust::host_vector<int> h_g_did(h_dq.fid,h_dq.fid+h_dq.sz);
     thrust::host_vector<int> h_g_qid(h_dq.tid,h_dq.tid+h_dq.sz);
         
-    print_result_list(h_g_did,h_g_qid);
+    //print_result_list(h_g_did,h_g_qid);
     
     //verification
     thrust::host_vector<int> h_c_did,h_c_qid;

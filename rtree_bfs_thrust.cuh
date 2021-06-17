@@ -31,12 +31,13 @@ using namespace std;
 using namespace thrust::placeholders;
 
 struct is_non_leaf {
-  int *fc,sz;
-  is_non_leaf(int _sz,int *_fc) : sz(_sz),fc(_fc) {}
+  int sz;
+  is_non_leaf(int _sz) : sz(_sz) {}
   __host__ __device__
-    bool operator()(thrust::tuple<int, int, int> val) {
-      int nid=fc[thrust::get<1>(val)];
-      return (nid > 0 && nid<sz && thrust::get<2>(val));
+    bool operator()(thrust::tuple<int, int, bool> val) {
+    //tuple is (qid,nid,flag); qid is not needed but the vector needs to be reordered by partition
+      int nid=thrust::get<1>(val);
+      return (nid >= 0 && nid<sz && thrust::get<2>(val));
     }
 };
 
@@ -122,18 +123,22 @@ void bfs_thrust(const RTREE<T>& d_rt,const BBOX<T>& d_rbox,const BBOX<T>& d_qbox
   int lev=0;
 
   while(work_sz>0){
+    std::cout<<"lev="<<lev<<" work_sz="<<work_sz<<std::endl; 
     thrust::device_vector<bool> d_intersect_flag(work_sz);    
-    
     auto d_tmp1_ptr=thrust::make_zip_iterator(thrust::make_tuple(d_tmp_qid_vec.begin(), d_tmp_nid_vec.begin()));           
     thrust::transform(d_tmp1_ptr,d_tmp1_ptr+work_sz,d_intersect_flag.begin(),d_node_intersect<T>(d_rt,d_qbox));
+    cudaDeviceSynchronize();
     
     //partition the queue by moving intersected non-leaf nodes to front
     auto d_nqf_ptr= thrust::make_zip_iterator(
             thrust::make_tuple(d_tmp_qid_vec.begin(), d_tmp_nid_vec.begin(),d_intersect_flag.begin()));
-
+        
     int valid_sz =
-      thrust::stable_partition(d_nqf_ptr, d_nqf_ptr+work_sz,is_non_leaf(d_rt.sz,d_rt.len))-d_nqf_ptr;
-              
+      thrust::stable_partition(d_nqf_ptr, d_nqf_ptr+work_sz,is_non_leaf(d_rt.sz))-d_nqf_ptr;
+
+    d_intersect_flag.resize(0);
+    d_intersect_flag.shrink_to_fit();
+
     std::cout<<"lev="<<lev<<" work_sz="<<work_sz<<" valid_sz="<<valid_sz<<std::endl; 
     total_result_sz += valid_sz;
      
@@ -141,7 +146,7 @@ void bfs_thrust(const RTREE<T>& d_rt,const BBOX<T>& d_rbox,const BBOX<T>& d_qbox
       break;
            
     //expand for next loop; assume d_map[0] is initialized to 0
-    thrust::device_vector<int> d_map(valid_sz+1);
+    thrust::device_vector<int> d_map(valid_sz+1,0);
 
     auto d_len_ptr=thrust::make_permutation_iterator(d_rt_len, d_tmp_nid_vec.begin());
     thrust::inclusive_scan(d_len_ptr,d_len_ptr+valid_sz,d_map.begin()+1);
@@ -191,8 +196,19 @@ void bfs_thrust(const RTREE<T>& d_rt,const BBOX<T>& d_rbox,const BBOX<T>& d_qbox
         d_next_nid_vec.begin(),
         _1 + _2);
 
+    d_map.resize(0);
+    d_offset.resize(0);
+    d_map.shrink_to_fit();
+    d_offset.shrink_to_fit();
+    
+    d_tmp_qid_vec.resize(0);
+    d_tmp_nid_vec.resize(0);
+    d_tmp_qid_vec.shrink_to_fit();
+    d_tmp_nid_vec.shrink_to_fit();
+
     d_tmp_qid_vec.swap(d_next_qid_vec);
     d_tmp_nid_vec.swap(d_next_nid_vec);
+
     d_next_qid_vec.resize(0);
     d_next_nid_vec.resize(0);
     d_next_qid_vec.shrink_to_fit();
@@ -202,6 +218,7 @@ void bfs_thrust(const RTREE<T>& d_rt,const BBOX<T>& d_rbox,const BBOX<T>& d_qbox
     lev++;   
   }
   std::cout<<"Final work_sz="<<work_sz<<std::endl;
+   
   //remove (qid,boxid) pairs that do not intersect  
   auto out_qb_ptr=thrust::make_zip_iterator(thrust::make_tuple(d_tmp_qid_vec.begin(), d_tmp_nid_vec.begin()));
   int result_sz = thrust::copy_if(out_qb_ptr,out_qb_ptr+work_sz,out_qb_ptr,
