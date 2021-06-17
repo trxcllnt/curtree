@@ -54,10 +54,11 @@ __host__ __device__ __inline__ bool intersect(float x1, float y1, float x2, floa
     return true;    
 }
 
-#define BATCH 64 //number of query windows, i.e., 1*q_size
+#define BATCH 32 //number of query windows, i.e., 1*q_size; the larger, the higher parallelism and faster
 #define QUEUE 1024 //number of maximum number of nodes after BFS expansion in a block
 
 //NOTE: QUEUE is limited by shared memory capacity and needs to consider occupancy
+// QUEUE/BATCH (32 in this particular case), should be the average expansion ratio for a block
 //If any blocks has more than QUEUE children after expansion,i.e., an overflow happens, 
 //a DFS phase (see https://dl.acm.org/doi/10.1145/2534921.2534949) 
 //or a pure device memory based soultion needs to be applied
