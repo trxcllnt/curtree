@@ -54,11 +54,15 @@ __host__ __device__ __inline__ bool intersect(float x1, float y1, float x2, floa
     return true;    
 }
 
+#define BATCH 64 //number of query windows, i.e., 1*q_size
+#define QUEUE 1024 //number of maximum number of nodes after BFS expansion in a block
 
-#define HEAD(tail, count, size) ((tail-count+1+size)%size)
-#define BATCH 40
-#define QUEUE 512
-#define NUM_THREADS 256
+//NOTE: QUEUE is limited by shared memory capacity and needs to consider occupancy
+//If any blocks has more than QUEUE children after expansion,i.e., an overflow happens, 
+//a DFS phase (see https://dl.acm.org/doi/10.1145/2534921.2534949) 
+//or a pure device memory based soultion needs to be applied
+
+//TODO: allow speficy BATH and QUEUE from command line 
 
 __global__ void query_tree_bfs_frontier(
                     int size,
