@@ -64,6 +64,8 @@ __host__ __device__ __inline__ bool intersect(float x1, float y1, float x2, floa
 //or a pure device memory based soultion needs to be applied
 
 //TODO: allow speficy BATH and QUEUE from command line 
+//TODO: adding DFS-based traversal
+//ToDO: split traversal levels into groups to support larger BATCH and smaller QUEUE
 
 __global__ void query_tree_bfs_frontier(
                     int size,
