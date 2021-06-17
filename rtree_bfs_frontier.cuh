@@ -385,7 +385,7 @@ if(0)
     cout<<"invalid block size: "<<invalid_blocks_sz<<endl;
     if(invalid_blocks_sz>0)
     {
-        std::cout<<"shared memory overflew; dfs is needed.............."<<std::endl;
+        std::cout<<"shared memory overflew; a DFS module is needed for overflown blocks......."<<std::endl;
         std::cout<<"OR, try to reduce BATCH and re-compile/run the code.............."<<std::endl;
         exit(-1);
     }
