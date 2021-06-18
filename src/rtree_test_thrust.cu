@@ -5,12 +5,20 @@
    ./rtree_test_thrust input_39096edges.txt 39096 input_39096edges.txt 39096 10
    ./rtree_test_thrust edges.txt 1154548 edges.txt 1154548 10
 */
+//#include "z_order.h"
 
-#include <assert.h>
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/time.h>
+#include "rmm/mr/device/device_memory_resource.hpp"
+#include "rtree.h"
+#include "rtree_bfs_thrust.cuh"
+#include "rtree_bulkload_thrust.cuh"
+#include "utility.cuh"
+#include "utility.h"
+
+#include <rmm/mr/device/cuda_memory_resource.hpp>
+#include <rmm/mr/device/owning_wrapper.hpp>
+#include <rmm/mr/device/per_device_resource.hpp>
+#include <rmm/mr/device/pool_memory_resource.hpp>
+
 #include <thrust/copy.h>
 #include <thrust/device_vector.h>
 #include <thrust/iterator/constant_iterator.h>
@@ -24,21 +32,33 @@
 #include <thrust/sort.h>
 #include <thrust/transform.h>
 #include <thrust/tuple.h>
+
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/time.h>
 #include <time.h>
 #include <iostream>
 #include <vector>
 
-//#include "z_order.h"
-
-#include "rtree.h"
-#include "rtree_bfs_thrust.cuh"
-#include "rtree_bulkload_thrust.cuh"
-#include "utility.cuh"
-#include "utility.h"
-
 using namespace std;
 
+namespace {
+// memory resource factory helpers
+auto make_cuda() { return std::make_shared<rmm::mr::cuda_memory_resource>(); }
+
+template <typename Upstream>
+auto make_pool(std::shared_ptr<Upstream> mr) {
+  return rmm::mr::make_owning_wrapper<rmm::mr::pool_memory_resource>(mr);
+}
+}  // namespace
+
 int main(int argc, char *argv[]) {
+  auto mr = make_cuda();
+  // auto mr = make_pool(make_cuda());
+  rmm::mr::set_current_device_resource(mr.get());
+
   if (argc != 6) {
     printf("EXEC input_mbr input_num, query_mbr, query_num, rtree_fanout\n");
     return -1;

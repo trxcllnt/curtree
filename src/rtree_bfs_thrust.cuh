@@ -1,10 +1,12 @@
 #pragma once
 
-#include <assert.h>
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/time.h>
+#include "rtree.h"
+#include "utility.cuh"
+#include "utility.h"
+
+#include <rmm/cuda_stream_view.hpp>
+#include <rmm/exec_policy.hpp>
+
 #include <thrust/copy.h>
 #include <thrust/device_vector.h>
 #include <thrust/fill.h>
@@ -20,13 +22,15 @@
 #include <thrust/sort.h>
 #include <thrust/transform.h>
 #include <thrust/tuple.h>
+
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/time.h>
 #include <time.h>
 #include <iostream>
 #include <vector>
-
-#include "rtree.h"
-#include "utility.cuh"
-#include "utility.h"
 
 using namespace std;
 using namespace thrust::placeholders;
@@ -101,6 +105,7 @@ template <class T>
 void bfs_thrust(const RTREE<T>& d_rt, const BBOX<T>& d_rbox, const BBOX<T>& d_qbox, IDPAIR& d_dq) {
   int q_size  = d_qbox.sz;
   int work_sz = q_size * 1;
+  auto stream = rmm::cuda_stream_default;
 
   thrust::device_ptr<int> d_rt_pos = thrust::device_pointer_cast(d_rt.pos);
   thrust::device_ptr<int> d_rt_len = thrust::device_pointer_cast(d_rt.len);
@@ -108,10 +113,10 @@ void bfs_thrust(const RTREE<T>& d_rt, const BBOX<T>& d_rbox, const BBOX<T>& d_qb
   thrust::device_vector<int> d_tmp_qid_vec(work_sz, -1);
   thrust::device_vector<int> d_tmp_nid_vec(work_sz, -1);
 
-  thrust::sequence(d_tmp_qid_vec.begin(), d_tmp_qid_vec.begin() + work_sz);
+  thrust::sequence(rmm::exec_policy(stream), d_tmp_qid_vec.begin(), d_tmp_qid_vec.end());
 
   // root id always begin with position 0
-  thrust::fill_n(d_tmp_nid_vec.begin(), work_sz, 0);
+  thrust::fill(rmm::exec_policy(stream), d_tmp_nid_vec.begin(), d_tmp_nid_vec.end(), 0);
 
   timeval t0, t1;
   gettimeofday(&t0, NULL);
@@ -122,19 +127,21 @@ void bfs_thrust(const RTREE<T>& d_rt, const BBOX<T>& d_rbox, const BBOX<T>& d_qb
   while (work_sz > 0) {
     std::cout << "lev=" << lev << " work_sz=" << work_sz << std::endl;
     thrust::device_vector<bool> d_intersect_flag(work_sz);
-    auto d_tmp1_ptr =
-      thrust::make_zip_iterator(thrust::make_tuple(d_tmp_qid_vec.begin(), d_tmp_nid_vec.begin()));
-    thrust::transform(d_tmp1_ptr,
+    auto d_tmp1_ptr = thrust::make_zip_iterator(d_tmp_qid_vec.begin(), d_tmp_nid_vec.begin());
+    thrust::transform(rmm::exec_policy(stream),
+                      d_tmp1_ptr,
                       d_tmp1_ptr + work_sz,
                       d_intersect_flag.begin(),
                       d_node_intersect<T>(d_rt, d_qbox));
 
     // partition the queue by moving intersected non-leaf nodes to front
     auto d_nqf_ptr = thrust::make_zip_iterator(
-      thrust::make_tuple(d_tmp_qid_vec.begin(), d_tmp_nid_vec.begin(), d_intersect_flag.begin()));
+      d_tmp_qid_vec.begin(), d_tmp_nid_vec.begin(), d_intersect_flag.begin());
 
     int valid_sz =
-      thrust::stable_partition(d_nqf_ptr, d_nqf_ptr + work_sz, is_non_leaf(d_rt.sz)) - d_nqf_ptr;
+      thrust::stable_partition(
+        rmm::exec_policy(stream), d_nqf_ptr, d_nqf_ptr + work_sz, is_non_leaf(d_rt.sz)) -
+      d_nqf_ptr;
 
     d_intersect_flag.resize(0);
     d_intersect_flag.shrink_to_fit();
@@ -148,7 +155,8 @@ void bfs_thrust(const RTREE<T>& d_rt, const BBOX<T>& d_rbox, const BBOX<T>& d_qb
     thrust::device_vector<int> d_map(valid_sz + 1, 0);
 
     auto d_len_ptr = thrust::make_permutation_iterator(d_rt_len, d_tmp_nid_vec.begin());
-    thrust::inclusive_scan(d_len_ptr, d_len_ptr + valid_sz, d_map.begin() + 1);
+    thrust::inclusive_scan(
+      rmm::exec_policy(stream), d_len_ptr, d_len_ptr + valid_sz, d_map.begin() + 1);
 
     int next_size = d_map.back();
     std::cout << "lev=" << lev << " next_size=" << next_size << std::endl;
@@ -158,18 +166,24 @@ void bfs_thrust(const RTREE<T>& d_rt, const BBOX<T>& d_rbox, const BBOX<T>& d_qb
     thrust::device_vector<int> d_next_nid_vec(next_size, -1);
 
     // handling qid
-    thrust::scatter(d_tmp_qid_vec.begin(),
+    thrust::scatter(rmm::exec_policy(stream),
+                    d_tmp_qid_vec.begin(),
                     d_tmp_qid_vec.begin() + valid_sz,
                     d_map.begin(),
                     d_next_qid_vec.begin());
-    thrust::inclusive_scan(d_next_qid_vec.begin(),
+    thrust::inclusive_scan(rmm::exec_policy(stream),
+                           d_next_qid_vec.begin(),
                            d_next_qid_vec.begin() + next_size,
                            d_next_qid_vec.begin(),
                            thrust::maximum<int>());
 
     // handling nid
     auto node_pos_ptr = thrust::make_permutation_iterator(d_rt_pos, d_tmp_nid_vec.begin());
-    thrust::scatter(node_pos_ptr, node_pos_ptr + valid_sz, d_map.begin(), d_next_nid_vec.begin());
+    thrust::scatter(rmm::exec_policy(stream),
+                    node_pos_ptr,
+                    node_pos_ptr + valid_sz,
+                    d_map.begin(),
+                    d_next_nid_vec.begin());
     thrust::inclusive_scan_by_key(d_next_qid_vec.begin(),
                                   d_next_qid_vec.begin() + next_size,
                                   d_next_nid_vec.begin(),
@@ -180,17 +194,26 @@ void bfs_thrust(const RTREE<T>& d_rt, const BBOX<T>& d_rbox, const BBOX<T>& d_qb
     // generate offset array
     thrust::device_vector<int> d_offset(next_size, -1);
 
-    thrust::scatter(d_map.begin(), d_map.begin() + valid_sz, d_map.begin(), d_offset.begin());
-    thrust::inclusive_scan(
-      d_offset.begin(), d_offset.end(), d_offset.begin(), thrust::maximum<int>());
+    thrust::scatter(rmm::exec_policy(stream),
+                    d_map.begin(),
+                    d_map.begin() + valid_sz,
+                    d_map.begin(),
+                    d_offset.begin());
+    thrust::inclusive_scan(rmm::exec_policy(stream),
+                           d_offset.begin(),
+                           d_offset.end(),
+                           d_offset.begin(),
+                           thrust::maximum<int>());
 
-    thrust::transform(d_offset.begin(),
+    thrust::transform(rmm::exec_policy(stream),
+                      d_offset.begin(),
                       d_offset.end(),
                       thrust::make_counting_iterator(0),
                       d_offset.begin(),
                       _2 - _1);
 
-    thrust::transform(d_next_nid_vec.begin(),
+    thrust::transform(rmm::exec_policy(stream),
+                      d_next_nid_vec.begin(),
                       d_next_nid_vec.begin() + next_size,
                       d_offset.begin(),
                       d_next_nid_vec.begin(),
@@ -220,12 +243,13 @@ void bfs_thrust(const RTREE<T>& d_rt, const BBOX<T>& d_rbox, const BBOX<T>& d_qb
   std::cout << "final work_sz = " << work_sz << std::endl;
 
   // remove (qid,boxid) pairs that do not intersect
-  auto out_qb_ptr =
-    thrust::make_zip_iterator(thrust::make_tuple(d_tmp_qid_vec.begin(), d_tmp_nid_vec.begin()));
-  int result_sz =
-    thrust::copy_if(
-      out_qb_ptr, out_qb_ptr + work_sz, out_qb_ptr, d_box_intersect<T>(d_qbox, d_rbox, d_rt.sz)) -
-    out_qb_ptr;
+  auto out_qb_ptr = thrust::make_zip_iterator(d_tmp_qid_vec.begin(), d_tmp_nid_vec.begin());
+  int result_sz   = thrust::copy_if(rmm::exec_policy(stream),
+                                    out_qb_ptr,
+                                    out_qb_ptr + work_sz,
+                                    out_qb_ptr,
+                                    d_box_intersect<T>(d_qbox, d_rbox, d_rt.sz)) -
+                  out_qb_ptr;
   std::cout << "result_sz=" << result_sz << std::endl;
 
   idpair_d_alloc(result_sz, d_dq);
@@ -233,11 +257,13 @@ void bfs_thrust(const RTREE<T>& d_rt, const BBOX<T>& d_rbox, const BBOX<T>& d_qb
   thrust::device_ptr<int> d_qid_ptr = thrust::device_pointer_cast(d_dq.tid);
 
   // substract offset so that box id begins with 0 (originally relative to root node position)
-  thrust::transform(d_tmp_nid_vec.begin(),
+  thrust::transform(rmm::exec_policy(stream),
+                    d_tmp_nid_vec.begin(),
                     d_tmp_nid_vec.begin() + result_sz,
                     d_nid_ptr,
                     lookup_box_id<T>(d_rt.sz, d_rbox.id));
-  thrust::copy(d_tmp_qid_vec.begin(), d_tmp_qid_vec.begin() + result_sz, d_qid_ptr);
+  thrust::copy(
+    rmm::exec_policy(stream), d_tmp_qid_vec.begin(), d_tmp_qid_vec.begin() + result_sz, d_qid_ptr);
 
   gettimeofday(&t1, NULL);
   float run_time = t1.tv_sec * 1000000 + t1.tv_usec - t0.tv_sec * 1000000 - t0.tv_usec;
