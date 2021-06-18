@@ -54,14 +54,14 @@ function(_set_target_properties_and_options TARGET)
                 "$<BUILD_INTERFACE:$<$<COMPILE_LANGUAGE:CUDA>:${${PROJECT_NAME}_CMAKE_CUDA_FLAGS}>>"
     )
     target_include_directories(${TARGET}
-        PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>"
+        PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
     )
     target_link_libraries(${TARGET} rmm::rmm)
 endfunction()
 
-add_library(curtree SHARED utility.cpp)
-add_executable(rtree_test_thrust rtree_test_thrust.cu)
-add_executable(rtree_test_frontier rtree_test_frontier.cu)
+add_library(curtree SHARED src/utility.cpp)
+add_executable(rtree_test_thrust src/rtree_test_thrust.cu)
+add_executable(rtree_test_frontier src/rtree_test_frontier.cu)
 
 _set_target_properties_and_options(curtree)
 _set_target_properties_and_options(rtree_test_thrust)
