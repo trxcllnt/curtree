@@ -26,6 +26,8 @@ include(ConfigureCXX)
 include(ConfigureCUDA)
 include(get_cpm)
 
+find_package(Boost REQUIRED COMPONENTS program_options)
+
 CPMFindPackage(NAME     rmm
     VERSION             21.08.00
     GIT_REPOSITORY      https://github.com/rapidsai/rmm.git
@@ -67,8 +69,8 @@ _set_target_properties_and_options(curtree)
 _set_target_properties_and_options(rtree_test_thrust)
 _set_target_properties_and_options(rtree_test_frontier)
 
-target_link_libraries(rtree_test_thrust curtree)
-target_link_libraries(rtree_test_frontier curtree)
+target_link_libraries(rtree_test_thrust curtree Boost::program_options)
+target_link_libraries(rtree_test_frontier curtree Boost::program_options)
 
 # Create a symlink to compile_commands.json for the llvm-vs-code-extensions.vscode-clangd plugin
 execute_process(COMMAND

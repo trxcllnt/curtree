@@ -1,4 +1,6 @@
+z-*
 build
 .cache
+.ccache
 .vscode
 compile_commands.json

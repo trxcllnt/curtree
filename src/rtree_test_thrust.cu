@@ -7,14 +7,15 @@
 */
 //#include "z_order.h"
 
-#include "rmm/mr/device/device_memory_resource.hpp"
 #include "rtree.h"
 #include "rtree_bfs_thrust.cuh"
 #include "rtree_bulkload_thrust.cuh"
 #include "utility.cuh"
 #include "utility.h"
+#include "verify.hpp"
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>
+#include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
@@ -55,8 +56,8 @@ auto make_pool(std::shared_ptr<Upstream> mr) {
 }  // namespace
 
 int main(int argc, char *argv[]) {
-  auto mr = make_cuda();
-  // auto mr = make_pool(make_cuda());
+  // auto mr = make_cuda();
+  auto mr = make_pool(make_cuda());
   rmm::mr::set_current_device_resource(mr.get());
 
   if (argc != 6) {
@@ -112,12 +113,28 @@ int main(int argc, char *argv[]) {
   thrust::host_vector<int> h_g_did(h_dq.fid, h_dq.fid + h_dq.sz);
   thrust::host_vector<int> h_g_qid(h_dq.tid, h_dq.tid + h_dq.sz);
 
-  // print_result_list(h_g_did,h_g_qid);
+  // std::cout << "GPU intersections:" << std::endl;
+  // print_result_list(h_g_did, h_g_qid);
 
   // verification
-  thrust::host_vector<int> h_c_did, h_c_qid;
-  int num_h = nested_loop_query<float>(h_q_box, h_d_box, h_c_did, h_c_qid);
-  std::cout << "num_h=" << num_h << std::endl;
+  // thrust::host_vector<int> h_c_did, h_c_qid;
+  // int num_h = nested_loop_query<float>(h_q_box, h_d_box, h_c_did, h_c_qid);
+  // std::cout << "num_h=" << num_h << std::endl;
+
+  auto intersections =
+    cpu_FindNeighborEdges(10,
+                          std::vector<float>(h_d_box.xmin, h_d_box.xmin + h_d_box.sz),
+                          std::vector<float>(h_d_box.ymin, h_d_box.ymin + h_d_box.sz),
+                          std::vector<float>(h_d_box.xmax, h_d_box.xmax + h_d_box.sz),
+                          std::vector<float>(h_d_box.ymax, h_d_box.ymax + h_d_box.sz));
+
+  thrust::host_vector<int> h_c_did(intersections.first);
+  thrust::host_vector<int> h_c_qid(intersections.second);
+
+  std::cout << "num_h=" << h_c_did.size() << std::endl;
+
+  // std::cout << "CPU intersections:" << std::endl;
+  // print_result_list(h_c_did, h_c_qid);
 
   bool same_d = same_vector(-1, h_g_did, h_c_did);
   bool same_q = same_vector(-1, h_g_qid, h_c_qid);
