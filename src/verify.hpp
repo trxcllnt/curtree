@@ -71,7 +71,7 @@ inline std::pair<std::vector<int32_t>, std::vector<int32_t>> cpu_FindNeighborEdg
   auto data_box_ids  = std::vector<int32_t>{};
   auto query_box_ids = std::vector<int32_t>{};
   // find values intersecting some area defined by a box
-  double queryTime = 0.;
+  std::chrono::nanoseconds queryTime{};
   for (unsigned i = 0; i < vBoxes.size(); i++) {
     auto box  = vBoxes[i];
     int min_x = box.min_corner().get<0>() - iSearchDistance;
@@ -79,7 +79,7 @@ inline std::pair<std::vector<int32_t>, std::vector<int32_t>> cpu_FindNeighborEdg
     int max_x = box.max_corner().get<0>() + iSearchDistance;
     int max_y = box.max_corner().get<1>() + iSearchDistance;
 
-    startTimeQTreeConstruction = std::chrono::high_resolution_clock::now();
+    auto start_time = std::chrono::high_resolution_clock::now();
     bg::model::box<point> query_box;
     query_box.min_corner().set<0>(min_x);
     query_box.min_corner().set<1>(min_y);
@@ -87,11 +87,8 @@ inline std::pair<std::vector<int32_t>, std::vector<int32_t>> cpu_FindNeighborEdg
     query_box.max_corner().set<1>(max_y);
     std::vector<value> result_s;
     rtree.query(bgi::intersects(query_box), std::back_inserter(result_s));
-    finishTimeQTreeConstruction = std::chrono::high_resolution_clock::now();
-    queryTime += std::chrono::duration_cast<std::chrono::microseconds>(finishTimeQTreeConstruction -
-                                                                       startTimeQTreeConstruction)
-                   .count() /
-                 1000.;
+    queryTime += std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::high_resolution_clock::now() - start_time);
 
     std::vector<int32_t> result_ids;
     std::transform(
@@ -105,7 +102,7 @@ inline std::pair<std::vector<int32_t>, std::vector<int32_t>> cpu_FindNeighborEdg
       query_box_ids.push_back(i);
     }
   }
-  std::cout << " Search CPU RTree query time: " << queryTime << " ms\n";
+  std::cout << " Search CPU RTree query time: " << (queryTime.count() / 1000000.) << " ms\n";
 
   // display results
   /*
